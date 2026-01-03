@@ -10,9 +10,21 @@ from mediapipe.tasks.python import vision
 
 import numpy as np
 
-from models.classifiers import DriverActionClassifier
+from models.classifiers import DriverActionClassifier, EMASmoother
 
 IMG_SIZE = 224
+prediction_classes = [
+    "safe driving",
+    "texting - right",
+    "talking on the phone - right",
+    "texting - left",
+    "talking on the phone - left",
+    "operating the radio",
+    "drinking",
+    "reaching behind",
+    "hair and makeup",
+    "talking to passenger",
+]
 
 # face detector setup
 BaseOptions = mp.tasks.BaseOptions
@@ -36,6 +48,8 @@ mobilenet.classifier = torch.nn.Identity()
 
 model = DriverActionClassifier(backbone=mobilenet, num_classes=10)
 model.eval()
+
+smoother = EMASmoother(num_classes=10, alpha=0.5)
 
 # set video settings
 cap = cv2.VideoCapture(0)
@@ -118,7 +132,8 @@ while cap.isOpened():
             hand_input = hand_resized.astype(np.float32) / 127.5 - 1.0
             hand_input = torch.from_numpy(hand_input).permute(2, 0, 1).unsqueeze(0)
 
-
+            
+            # frame preprocessing
             frame_roi = frame[0:H, 0:W]
 
             frame_rgb = cv2.cvtColor(frame_roi, cv2.COLOR_BGR2RGB)
@@ -135,10 +150,14 @@ while cap.isOpened():
                 continue
 
 
+            # predictions
             with torch.no_grad():
                 logits = model(frame_input, face_input, hand_input)
-                pred_class = torch.argmax(logits, dim=1)
-                print("Predicted class:", pred_class.item())
+                smoothed_probs = smoother.smooth(logits)
+                pred_class = smoothed_probs.argmax(dim=1)
+                
+                final_class = prediction_classes[pred_class.item()]
+                print("Predicted class:", final_class)
 
 
     # break

@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 class DriverActionClassifier(nn.Module):
     def __init__(self, backbone, num_classes=10):
@@ -17,3 +18,29 @@ class DriverActionClassifier(nn.Module):
         out = self.classifier(combined)
 
         return out
+    
+
+class EMASmoother:
+    def __init__(self, num_classes, alpha=0.3, device='cpu'):
+        """
+        num_classes: number of classes in your classifier
+        alpha: smoothing factor (0 < alpha <= 1). Higher = more responsive, lower = smoother
+        """
+        self.alpha = alpha
+        self.num_classes = num_classes
+        self.device = device
+        self.ema_probs = None  # stores running smoothed probabilities
+
+    @torch.no_grad()
+    def smooth(self, logits):
+        """
+        logits: tensor of shape (batch_size, num_classes)
+        """
+        probs = F.softmax(logits, dim=1)
+
+        if self.ema_probs is None:
+            self.ema_probs = probs.clone()
+        else:
+            self.ema_probs = self.alpha * probs + (1 - self.alpha) * self.ema_probs
+
+        return self.ema_probs

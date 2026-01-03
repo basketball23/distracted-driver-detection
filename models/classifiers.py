@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torchvision.models as models
 
 class DriverActionClassifier(nn.Module):
     def __init__(self, backbone, num_classes=10):

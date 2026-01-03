@@ -10,8 +10,9 @@ from mediapipe.tasks.python import vision
 
 import numpy as np
 
-IMG_SIZE = 224
+from models.classifiers import DriverActionClassifier
 
+IMG_SIZE = 224
 
 # face detector setup
 BaseOptions = mp.tasks.BaseOptions
@@ -29,16 +30,17 @@ options = FaceDetectorOptions(
 # facemesh model
 detector = FaceDetector.create_from_options(options)
 
-mobilenet = models.mobilenet_v3_small(pretrained=True)
+# mobilenet as the backbone
+mobilenet = models.mobilenet_v3_small(weights="IMAGENET1K_V1")
+mobilenet.classifier = torch.nn.Identity()
 
-
-
-
+model = DriverActionClassifier(backbone=mobilenet, num_classes=10)
+model.eval()
 
 # set video settings
 cap = cv2.VideoCapture(0)
-#cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-#cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
 timestamp = 0
 
@@ -94,7 +96,7 @@ while cap.isOpened():
             face_resized = cv2.resize(face_rgb, (IMG_SIZE, IMG_SIZE))
 
             face_input = face_resized.astype(np.float32) / 127.5 - 1.0
-            face_input = np.expand_dims(face_input, axis=0)
+            face_input = torch.from_numpy(face_input).permute(2, 0, 1).unsqueeze(0)
 
             '''
             Bottom-right quadrant input (for hands)
@@ -107,16 +109,23 @@ while cap.isOpened():
             
             cv2.rectangle(frame, (y3, x3), (y4, x4), (0, 255, 0), 2)
 
+            # hand roi
             hand_roi = frame[H//2:H, W//2:W]
-
-            print(H, W)
 
             hand_rgb = cv2.cvtColor(hand_roi, cv2.COLOR_BGR2RGB)
             hand_resized = cv2.resize(hand_rgb, (IMG_SIZE, IMG_SIZE))
 
             hand_input = hand_resized.astype(np.float32) / 127.5 - 1.0
-            hand_input = np.expand_dims(hand_input, axis=0)
+            hand_input = torch.from_numpy(hand_input).permute(2, 0, 1).unsqueeze(0)
 
+
+            frame_roi = frame[0:H, 0:W]
+
+            frame_rgb = cv2.cvtColor(frame_roi, cv2.COLOR_BGR2RGB)
+            frame_resized = cv2.resize(frame_rgb, (IMG_SIZE, IMG_SIZE))
+
+            frame_input = frame_resized.astype(np.float32) / 127.5 - 1.0
+            frame_input = torch.from_numpy(frame_input).permute(2, 0, 1).unsqueeze(0)
             
             # run inference every 3 frames
             if timestamp % 3 != 0:
@@ -124,6 +133,12 @@ while cap.isOpened():
                 if cv2.waitKey(1) & 0xFF == 27:
                     break
                 continue
+
+
+            with torch.no_grad():
+                logits = model(frame_input, face_input, hand_input)
+                pred_class = torch.argmax(logits, dim=1)
+                print("Predicted class:", pred_class.item())
 
 
     # break

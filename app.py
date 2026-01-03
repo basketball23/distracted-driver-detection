@@ -1,11 +1,13 @@
 import cv2
 
+import torch
+import torch.nn as nn
+import torchvision.models as models
+
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
-import tensorflow as tf
-layers = tf.keras.layers
 import numpy as np
 
 IMG_SIZE = 224
@@ -27,10 +29,16 @@ options = FaceDetectorOptions(
 # facemesh model
 detector = FaceDetector.create_from_options(options)
 
+mobilenet = models.mobilenet_v3_small(pretrained=True)
+
+
+
+
+
 # set video settings
 cap = cv2.VideoCapture(0)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+#cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+#cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
 timestamp = 0
 
@@ -53,6 +61,10 @@ while cap.isOpened():
         for face in result.detections:
             '''
             Preprocessing and model inference
+            '''
+
+            '''
+            Head bounding box
             '''
 
             # finding and plotting bounding box (face roi [region of interest])
@@ -83,6 +95,27 @@ while cap.isOpened():
 
             face_input = face_resized.astype(np.float32) / 127.5 - 1.0
             face_input = np.expand_dims(face_input, axis=0)
+
+            '''
+            Bottom-right quadrant input (for hands)
+            '''
+
+            x3 = H//2
+            y3 = W//2
+            x4 = H
+            y4 = W
+            
+            cv2.rectangle(frame, (y3, x3), (y4, x4), (0, 255, 0), 2)
+
+            hand_roi = frame[H//2:H, W//2:W]
+
+            print(H, W)
+
+            hand_rgb = cv2.cvtColor(hand_roi, cv2.COLOR_BGR2RGB)
+            hand_resized = cv2.resize(hand_rgb, (IMG_SIZE, IMG_SIZE))
+
+            hand_input = hand_resized.astype(np.float32) / 127.5 - 1.0
+            hand_input = np.expand_dims(hand_input, axis=0)
 
             
             # run inference every 3 frames

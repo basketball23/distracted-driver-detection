@@ -11,25 +11,21 @@ import numpy as np
 IMG_SIZE = 224
 
 
-# facemesh setup
-BaseOptions = python.BaseOptions
-FaceLandmarker = vision.FaceLandmarker
-FaceLandmarkerOptions = vision.FaceLandmarkerOptions
-VisionRunningMode = vision.RunningMode
+# face detector setup
+BaseOptions = mp.tasks.BaseOptions
+FaceDetector = mp.tasks.vision.FaceDetector
+FaceDetectorOptions = mp.tasks.vision.FaceDetectorOptions
+VisionRunningMode = mp.tasks.vision.RunningMode
 
-# options for facemesh
-options = FaceLandmarkerOptions(
-    base_options=BaseOptions(model_asset_path="models/face_landmarker.task"),
+# options
+options = FaceDetectorOptions(
+    base_options=BaseOptions(model_asset_path='models/blaze_face_short_range.tflite.task'),
     running_mode=VisionRunningMode.VIDEO,
-    num_faces=1,
-    # can use this for expression detection
-    output_face_blendshapes=False,
-    output_facial_transformation_matrixes=False,
-    min_tracking_confidence=0.7
+    min_detection_confidence=0.5,
 )
 
 # facemesh model
-landmarker = FaceLandmarker.create_from_options(options)
+detector = FaceDetector.create_from_options(options)
 
 # set video settings
 cap = cv2.VideoCapture(0)
@@ -48,24 +44,22 @@ while cap.isOpened():
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
 
-    result = landmarker.detect_for_video(mp_image, timestamp)
+    result = detector.detect_for_video(mp_image, timestamp)
     timestamp += 1
 
-    if result.face_landmarks:
+    if result.detections:
         H, W, _ = frame.shape
-        # for each face detected (1 in this case)
-        for face in result.face_landmarks:
+        # for each face detected
+        for face in result.detections:
             '''
             Preprocessing and model inference
             '''
 
             # finding and plotting bounding box (face roi [region of interest])
-            xs = [lm.x for lm in face]
-            ys = [lm.y for lm in face]
-            x1 = int(min(xs) * W)
-            y1 = int(min(ys) * H)
-            x2 = int(max(xs) * W)
-            y2 = int(max(ys) * H)
+            x1 = face.bounding_box.origin_x
+            y1 = face.bounding_box.origin_y
+            x2 = x1 + face.bounding_box.width
+            y2 = y1 + face.bounding_box.height
 
             # apply padding
             pad = 0.25

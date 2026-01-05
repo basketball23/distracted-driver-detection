@@ -1,35 +1,41 @@
 import cv2
 
+import torch
+import torch.nn as nn
+import torchvision.models as models
+
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
-import tensorflow as tf
-layers = tf.keras.layers
 import numpy as np
+
+from models.classifiers import DriverActionClassifier
 
 IMG_SIZE = 224
 
+# face detector setup
+BaseOptions = mp.tasks.BaseOptions
+FaceDetector = mp.tasks.vision.FaceDetector
+FaceDetectorOptions = mp.tasks.vision.FaceDetectorOptions
+VisionRunningMode = mp.tasks.vision.RunningMode
 
-# facemesh setup
-BaseOptions = python.BaseOptions
-FaceLandmarker = vision.FaceLandmarker
-FaceLandmarkerOptions = vision.FaceLandmarkerOptions
-VisionRunningMode = vision.RunningMode
-
-# options for facemesh
-options = FaceLandmarkerOptions(
-    base_options=BaseOptions(model_asset_path="models/face_landmarker.task"),
+# options
+options = FaceDetectorOptions(
+    base_options=BaseOptions(model_asset_path='models/blaze_face_short_range.tflite'),
     running_mode=VisionRunningMode.VIDEO,
-    num_faces=1,
-    # can use this for expression detection
-    output_face_blendshapes=False,
-    output_facial_transformation_matrixes=False,
-    min_tracking_confidence=0.7
+    min_detection_confidence=0.5,
 )
 
 # facemesh model
-landmarker = FaceLandmarker.create_from_options(options)
+detector = FaceDetector.create_from_options(options)
+
+# mobilenet as the backbone
+mobilenet = models.mobilenet_v3_small(weights="IMAGENET1K_V1")
+mobilenet.classifier = torch.nn.Identity()
+
+model = DriverActionClassifier(backbone=mobilenet, num_classes=10)
+model.eval()
 
 # set video settings
 cap = cv2.VideoCapture(0)
@@ -48,24 +54,26 @@ while cap.isOpened():
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
 
-    result = landmarker.detect_for_video(mp_image, timestamp)
+    result = detector.detect_for_video(mp_image, timestamp)
     timestamp += 1
 
-    if result.face_landmarks:
+    if result.detections:
         H, W, _ = frame.shape
-        # for each face detected (1 in this case)
-        for face in result.face_landmarks:
+        # for each face detected
+        for face in result.detections:
             '''
             Preprocessing and model inference
             '''
 
+            '''
+            Head bounding box
+            '''
+
             # finding and plotting bounding box (face roi [region of interest])
-            xs = [lm.x for lm in face]
-            ys = [lm.y for lm in face]
-            x1 = int(min(xs) * W)
-            y1 = int(min(ys) * H)
-            x2 = int(max(xs) * W)
-            y2 = int(max(ys) * H)
+            x1 = face.bounding_box.origin_x
+            y1 = face.bounding_box.origin_y
+            x2 = x1 + face.bounding_box.width
+            y2 = y1 + face.bounding_box.height
 
             # apply padding
             pad = 0.25
@@ -88,8 +96,36 @@ while cap.isOpened():
             face_resized = cv2.resize(face_rgb, (IMG_SIZE, IMG_SIZE))
 
             face_input = face_resized.astype(np.float32) / 127.5 - 1.0
-            face_input = np.expand_dims(face_input, axis=0)
+            face_input = torch.from_numpy(face_input).permute(2, 0, 1).unsqueeze(0)
 
+            '''
+            Bottom-right quadrant input (for hands)
+            '''
+
+            x3 = H//2
+            y3 = W//2
+            x4 = H
+            y4 = W
+            
+            cv2.rectangle(frame, (y3, x3), (y4, x4), (0, 255, 0), 2)
+
+            # hand roi
+            hand_roi = frame[H//2:H, W//2:W]
+
+            hand_rgb = cv2.cvtColor(hand_roi, cv2.COLOR_BGR2RGB)
+            hand_resized = cv2.resize(hand_rgb, (IMG_SIZE, IMG_SIZE))
+
+            hand_input = hand_resized.astype(np.float32) / 127.5 - 1.0
+            hand_input = torch.from_numpy(hand_input).permute(2, 0, 1).unsqueeze(0)
+
+
+            frame_roi = frame[0:H, 0:W]
+
+            frame_rgb = cv2.cvtColor(frame_roi, cv2.COLOR_BGR2RGB)
+            frame_resized = cv2.resize(frame_rgb, (IMG_SIZE, IMG_SIZE))
+
+            frame_input = frame_resized.astype(np.float32) / 127.5 - 1.0
+            frame_input = torch.from_numpy(frame_input).permute(2, 0, 1).unsqueeze(0)
             
             # run inference every 3 frames
             if timestamp % 3 != 0:
@@ -97,6 +133,12 @@ while cap.isOpened():
                 if cv2.waitKey(1) & 0xFF == 27:
                     break
                 continue
+
+
+            with torch.no_grad():
+                logits = model(frame_input, face_input, hand_input)
+                pred_class = torch.argmax(logits, dim=1)
+                print("Predicted class:", pred_class.item())
 
 
     # break

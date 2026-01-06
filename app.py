@@ -1,5 +1,5 @@
 import cv2
-
+import os
 import torch
 import torch.nn as nn
 import torchvision.models as models
@@ -10,9 +10,40 @@ from mediapipe.tasks.python import vision
 
 import numpy as np
 
-from models.classifiers import DriverActionClassifier
+# MODEL_PATH = "/Users/rushilmohan/Documents/Coding/Python/Projects/Distracted_Driver_Detection/models"
+# assert os.path.exists(MODEL_PATH), "model file does not exists"
+# assert os.path.getsize(MODEL_PATH) > 0, "model file is empty"
+frame_idx = 0
+
+
+# from models.classifiers import DriverActionClassifier
+#classifier def import
+
+import torch
+import torch.nn as nn
+
+class DriverActionClassifier(nn.Module):
+    def __init__(self, backbone, num_classes=10):
+        super().__init__()
+
+        self.backbone = backbone
+        self.classifier = nn.Linear(3 * 576, num_classes)
+
+    def forward(self, image, face, hand):
+        im = self.backbone(image).flatten(1)
+        f = self.backbone(face).flatten(1)
+        ha = self.backbone(hand).flatten(1)
+
+        combined = torch.cat([im, f, ha], dim=1)
+        out = self.classifier(combined)
+
+        return out
 
 IMG_SIZE = 224
+
+with open("models/blaze_face_short_range.tflite.task", "rb") as f:
+    face_detector_model = f.read()
+
 
 # face detector setup
 BaseOptions = mp.tasks.BaseOptions
@@ -22,7 +53,7 @@ VisionRunningMode = mp.tasks.vision.RunningMode
 
 # options
 options = FaceDetectorOptions(
-    base_options=BaseOptions(model_asset_path='models/blaze_face_short_range.tflite'),
+    base_options=BaseOptions(model_asset_path="models/blaze_face_short_range.tflite.task"),
     running_mode=VisionRunningMode.VIDEO,
     min_detection_confidence=0.5,
 )
@@ -56,6 +87,7 @@ while cap.isOpened():
 
     result = detector.detect_for_video(mp_image, timestamp)
     timestamp += 1
+    #timestamp = int(cap.get(cv2.CAP_PROP_POS_MSEC))
 
     if result.detections:
         H, W, _ = frame.shape
@@ -128,7 +160,8 @@ while cap.isOpened():
             frame_input = torch.from_numpy(frame_input).permute(2, 0, 1).unsqueeze(0)
             
             # run inference every 3 frames
-            if timestamp % 3 != 0:
+            if frame_idx % 3 != 0:
+                frame_idx += 1
                 cv2.imshow("Face Mesh", frame)
                 if cv2.waitKey(1) & 0xFF == 27:
                     break

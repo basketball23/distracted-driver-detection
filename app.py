@@ -3,6 +3,7 @@ import cv2
 import torch
 import torch.nn as nn
 import torchvision.models as models
+import torchvision.transforms as T
 
 import mediapipe as mp
 
@@ -48,6 +49,13 @@ model = DriverActionClassifier(backbone=mobilenet, num_classes=10)
 model.eval()
 
 smoother = EMASmoother(num_classes=10, alpha=0.5)
+
+mobilenet_transform = T.Compose([
+    T.ToPILImage(),
+    T.Resize(IMG_SIZE),
+    T.ToTensor(),
+    T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+])
 
 # set video settings
 cap = cv2.VideoCapture(0)
@@ -104,11 +112,9 @@ while cap.isOpened():
                 continue
             
             # preprocessing
+            
             face_rgb = cv2.cvtColor(face_roi, cv2.COLOR_BGR2RGB)
-            face_resized = cv2.resize(face_rgb, (IMG_SIZE, IMG_SIZE))
-
-            face_input = face_resized.astype(np.float32) / 127.5 - 1.0
-            face_input = torch.from_numpy(face_input).permute(2, 0, 1).unsqueeze(0)
+            face_input = mobilenet_transform(face_rgb).unsqueeze(0)
 
             '''
             Bottom-right quadrant input (for hands)
@@ -125,20 +131,14 @@ while cap.isOpened():
             hand_roi = frame[H//2:H, W//2:W]
 
             hand_rgb = cv2.cvtColor(hand_roi, cv2.COLOR_BGR2RGB)
-            hand_resized = cv2.resize(hand_rgb, (IMG_SIZE, IMG_SIZE))
-
-            hand_input = hand_resized.astype(np.float32) / 127.5 - 1.0
-            hand_input = torch.from_numpy(hand_input).permute(2, 0, 1).unsqueeze(0)
+            hand_input = mobilenet_transform(hand_rgb).unsqueeze(0)
 
             
             # frame preprocessing
             frame_roi = frame[0:H, 0:W]
 
             frame_rgb = cv2.cvtColor(frame_roi, cv2.COLOR_BGR2RGB)
-            frame_resized = cv2.resize(frame_rgb, (IMG_SIZE, IMG_SIZE))
-
-            frame_input = frame_resized.astype(np.float32) / 127.5 - 1.0
-            frame_input = torch.from_numpy(frame_input).permute(2, 0, 1).unsqueeze(0)
+            frame_input = mobilenet_transform(frame_rgb).unsqueeze(0)
             
             # run inference every 3 frames
             if timestamp % 3 != 0:

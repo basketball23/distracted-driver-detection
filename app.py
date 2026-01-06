@@ -5,8 +5,6 @@ import torch.nn as nn
 import torchvision.models as models
 
 import mediapipe as mp
-from mediapipe.tasks import python
-from mediapipe.tasks.python import vision
 
 import numpy as np
 
@@ -155,7 +153,7 @@ while cap.isOpened():
                 logits = model(frame_input, face_input, hand_input)
                 smoothed_probs = smoother.smooth(logits)
                 pred_class = smoothed_probs.argmax(dim=1)
-                
+
                 final_class = prediction_classes[pred_class.item()]
                 print("Predicted class:", final_class)
 

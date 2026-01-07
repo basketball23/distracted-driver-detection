@@ -10,6 +10,7 @@ import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
+
 class DriverActionClassifier(nn.Module):
     def __init__(self, backbone, num_classes=10):
         super().__init__()
@@ -21,8 +22,8 @@ class DriverActionClassifier(nn.Module):
         f = self.backbone(face).flatten(1)
         ha = self.backbone(hand).flatten(1)
         combined = torch.cat([im, f, ha], dim=1)
-        out = self.classifier(combined)
-        return out
+        return self.classifier(combined)
+  
 
 class DriverDataset(Dataset):
     def __init__(self, root_dir, detector, img_size=224):
@@ -52,7 +53,7 @@ class DriverDataset(Dataset):
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
         result = self.detector.detect(mp_image)
-        if result.detections:
+        if result and result.detections and len(result.detections) > 0:
             face = result.detections[0].bounding_box
             x1 = max(0, int(face.origin_x - 0.25 * face.width))
             y1 = max(0, int(face.origin_y - 0.25 * face.height))
@@ -64,30 +65,70 @@ class DriverDataset(Dataset):
         hand_roi = frame[H//2:H, W//2:W]
         full_roi = frame.copy()
         def preprocess(img):
-            img = cv2.resize(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), (self.img_size, self.img_size))
-            img = img.astype(np.float32) / 127.5 - 1.0
-            img = torch.from_numpy(img).permute(2, 0, 1)
+            img = cv2.resize(img, (self.img_size, self.img_size))
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            img = img.astype(np.float32) / 255.0
+            
+            img = torch.from_numpy(img).permute(2, 0, 1).contiguous()
+            
+            mean = torch.tensor([0.485, 0.456, 0.406], dtype=img.dtype).view(3,1,1)
+            std  = torch.tensor([0.229, 0.224, 0.225], dtype=img.dtype).view(3,1,1)
+            img = (img - mean) / std
             return img
-        return preprocess(full_roi), preprocess(face_roi), preprocess(hand_roi), label
+
+        return (
+            preprocess(full_roi),
+            preprocess(face_roi),
+            preprocess(hand_roi),
+            label
+        )   
+        
 
 BaseOptions = mp.tasks.BaseOptions
 FaceDetectorOptions = mp.tasks.vision.FaceDetectorOptions
 VisionRunningMode = mp.tasks.vision.RunningMode
 detector = mp.tasks.vision.FaceDetector.create_from_options(
     FaceDetectorOptions(
-        base_options=BaseOptions(model_asset_path='/Users/rushilmohan/Downloads/blaze_face_short_range.tflite.task'),
+        base_options=BaseOptions(model_asset_path='/Users/rushilmohan/Downloads/blaze_face_short_range.tflite'),
         running_mode=VisionRunningMode.IMAGE,
         min_detection_confidence=0.5
     )
 )
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-dataset = DriverDataset("/Users/rushilmohan/Downloads/state-farm-distracted-driver-detection/imgs/train", detector)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+DATASET_ROOT = "/Users/rushilmohan/Google Drive/My Drive/Distracted Driver Detection/state-farm-distracted-driver-detection/imgs/train"
+
+dataset = DriverDataset(
+    root_dir=DATASET_ROOT,
+    detector=detector
+)
+
 train_size = int(0.8 * len(dataset))
 val_size = len(dataset) - train_size
-train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
-train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=0)
-val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False, num_workers=0)
+
+train_dataset, val_dataset = random_split(
+    dataset,
+    [train_size, val_size],
+    generator=torch.Generator().manual_seed(42)
+)
+
+train_loader = DataLoader(
+    train_dataset,
+    batch_size=16,
+    shuffle=True,
+    num_workers=0
+)
+
+val_loader = DataLoader(
+    val_dataset,
+    batch_size=16,
+    shuffle=False,
+    num_workers=0
+)
+
+full, face, hand, labels = next(iter(train_loader))
+print(full.shape, face.shape, hand.shape, labels.shape)
 
 mobilenet = models.mobilenet_v3_small(weights="IMAGENET1K_V1")
 mobilenet.classifier = nn.Identity()

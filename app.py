@@ -41,8 +41,6 @@ class DriverActionClassifier(nn.Module):
 
 IMG_SIZE = 224
 
-with open("models/blaze_face_short_range.tflite.task", "rb") as f:
-    face_detector_model = f.read()
 
 
 # face detector setup

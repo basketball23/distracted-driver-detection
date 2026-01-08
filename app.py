@@ -1,3 +1,5 @@
+#create bounding box for face and hand detection
+
 import cv2
 import os
 import torch

@@ -1,0 +1,38 @@
+{
+  "model_type": "ImprovedDriverActionClassifier",
+  "backbone": "MobileNetV3-Small",
+  "num_classes": 10,
+  "input_size": [
+    224,
+    224
+  ],
+  "num_views": 3,
+  "best_epoch": 26,
+  "best_val_loss": 0.015426184692464602,
+  "best_val_acc": 99.64317573595004,
+  "best_val_f1": 0.9964292731259905,
+  "test_loss": 0.023184171401922,
+  "test_acc": 99.33125278644673,
+  "test_f1": 0.993276540981957,
+  "class_names": {
+    "0": "safe driving",
+    "1": "texting - right",
+    "2": "talking on the phone - right",
+    "3": "texting - left",
+    "4": "talking on the phone - left",
+    "5": "operating the radio",
+    "6": "drinking",
+    "7": "reaching behind",
+    "8": "hair and makeup",
+    "9": "talking to passenger"
+  },
+  "training_config": {
+    "batch_size": 32,
+    "learning_rate": 0.0001,
+    "weight_decay": 0.0001,
+    "dropout": 0.5,
+    "optimizer": "AdamW",
+    "scheduler": "ReduceLROnPlateau",
+    "augmentation": "RandomHorizontalFlip, ColorJitter, RandomRotation, RandomAffine"
+  }
+}
